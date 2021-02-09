@@ -1,0 +1,278 @@
+# É necessário ter fazer o pip install no CMD antes de começar a operar os códigos
+# Também é necessário antes de rodar o código baixar o drive do navegador de preferência e guardar o path do diretório
+
+
+from selenium import webdriver
+import time
+from bs4 import BeautifulSoup as soup
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# as importações abaixo são para lidar com os erros que acontecem durante a execução do crawler
+from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import StaleElementReferenceException
+ignored_exceptions = (NoSuchElementException,StaleElementReferenceException,)
+
+
+
+
+# Abrindo o navegador
+driver = webdriver.Chrome("C:\Program Files (x86)\chromedriver.exe")
+
+# Selecionando o endereço da página onde se iniciará a raspagem
+url = "https://www.anbima.com.br/pt_br/informar/dados-de-emissao-de-cri.htm"
+
+driver.get(url)
+
+# Aguardando um tempo para a página carregar alguns elementos (não é necessário, mas é bom para não sobrecarregar o servidor da anbima)
+time.sleep(2)
+
+# Encontrar o Pop-up que abre na página
+pop_up = WebDriverWait(driver, 10, ignored_exceptions=ignored_exceptions).until(EC.presence_of_element_located((By.XPATH, "//a[@class='LGPD_ANBIMA_global_sites__text__btn']")))
+
+# Clicar no Pop-up em "prosseguir"
+driver.execute_script("arguments[0].click();", pop_up)
+
+
+# Ir para o frame aonde se encontram os dados
+driver.switch_to.frame(driver.find_element_by_tag_name('iframe'))
+
+# Encontrar o botão "Consultar" de forma geral para abrir todos os dados
+consult_button = WebDriverWait(driver, 10, ignored_exceptions=ignored_exceptions).until(EC.presence_of_element_located((By.XPATH, "//button[@class='btn btn-black right']")))
+
+# Clicar nesse botão
+driver.execute_script("arguments[0].click();", consult_button)
+
+# Definir o arquivo CSV no qual serão destinados os dados da raspagem
+filename = "anbimacrawler3.csv"
+
+# Abrir o arquvivo CSV
+f = open(filename, "w", encoding='utf-8')
+
+# Definindo os cabeçalhos na primeira coluna
+headers = "Nº Cedentes| Cedentes| Nº Originadores | Originadores |Nº Devedores| Devedores| Código da Oferta| Nome do Emissor| Nº da Emissão| Quantidade de séries| Data de Registro da Oferta na CVM| Registro Provisório? | Data de Registro Provisório | Nome do Coordenador Líder | Valor Total da Oferta | Regime Fiduciário? | Nome do Agente Fiduciário | Tipo de Categoria | Concentração | Tipo de Contrato| Segmento | Descrição do Segmento | Custodiante | Escriturador | Nº da Série | Tipo de CRI | Tipo de Oferta| Nº de Registro CVM | Data de Emissão do CRI | Descrição do Percentual da Carteira | Mercado Distribuidor | Código ISIN | Código CETIP | Detalhe - Quantidade | Detalhe - Valor do Preço Unitário de Emissão | Detalhe - Valor | Indexador | Percentual do Indexador | Descrição da Regra do Indexador | Descrição do Spread do Indexador | Periodicidade do Indexador | Duration | Descrição do Vencimento do CRI (Em meses) | Data da Primeira Amortização | Forma de Amortização | Periodicidade de Amortização | Descrição da Carência do Pagamento de Juros | Descrição da Carência do Pagamento do Principal | Forma de Pagamento | Possibilidade de Pré-Pagamento? | Existe Prêmio? | Mitigação de Risco | Possui Rating? | Agência Classificadora de Risco | Descrição do Rating | (%) Real Imobiliária (Alienação Fiduciária: Hipoteca) | (%) Fidejussoria | (%) Cessão Fiduciária de Recebíveis | (%) Coobrigação | (%) Nota Promissória | (%) Alienação de Cotas da SPE | Outras Garantias | (%) Outras Garantias | ID do lastro | Quantidade de contratos na Emissão | Descrição do Tipo de Contrato | LTV (% pelo Saldo Devedor) - Médio Ponderado | LTV (% pelo Saldo Devedor) - Máximo | LTV (% pelo Saldo Devedor) Mínimo | Valor do Saldo Devedor do Contrato - Médio | Valor do Saldo Devedor do Contrato - Máximo | Valor do Saldo Devedor do Contrato - Mínimo | Prazo dos Contratos (meses) - Médio | Prazo dos Contratos (meses) - Máximo | Prazo dos Contratos (meses) - Mínimo | Taxa dos Contratos (% a.a.)  - Máxima | Taxa dos Contratos (% a.a.) - Mínima | Taxa dos Contratos (% a.a.) - Ponderada (TIR) | Lastro Registrado? | Local de Registro | Descrição do Local de Registro +\n "
+
+f.write(headers)
+
+
+# Definindo os índices que vão guiar as raspagens. São 1650 CRI distribuídos em muitas páginas. 
+# O indicador "i" é para seguir a ordem de 1 até 10 já que por página vão aparecer 10 CRI
+# O indicador "j" é o número da página. Começa no indexador 3, já que o 1 e o 2 são botões para "voltar para página anterior" e "voltar para a primeira página" respect.
+
+i = 1
+j = 3
+
+
+# Iniciando o loop que vai clicar em cada CRI, que irá abrir uma nova página na qual irá captar todas as informações do CRI selecionado...
+# ... voltar para a principal, clicar em outro CRI e assim por diante. Quando acabar os CRI de uma página, vai seguir para a próxima...
+# ... enquanto (while) houverem novos CRI para serem clicados
+
+while True:
+    try:
+        # Indexando a página em "j" 
+        pages = WebDriverWait(driver, 10, ignored_exceptions=ignored_exceptions).until(EC.presence_of_element_located((By.XPATH, "//li[{}]".format(j))))
+       
+        # Clicando na página j 
+        driver.execute_script("arguments[0].click();", pages)
+
+        # Aguardando um tempo para não sobrecarregar o site
+        time.sleep(1)
+
+        # Indexando os botões que abrem as páginas específicas de cada CRI em "i"
+        each_button_cri = WebDriverWait(driver, 10, ignored_exceptions=ignored_exceptions).until(EC.element_to_be_clickable(
+            (By.XPATH, "/html/body/div[1]/div/div/div/main/table/tbody/tr[{}]/td[12]/div/a[1]".format(i))))
+
+        # Clicando no primeiro botão
+        driver.execute_script("arguments[0].click();", each_button_cri)
+
+        # Abrindo a página onde será feita a raspagem existem três informações importantes "escondidas" atrás de botões, clica-se nelas para revelar a informação.
+        
+        lista_cedente = WebDriverWait(driver, 10, ignored_exceptions=ignored_exceptions).until(
+            EC.presence_of_element_located((By.XPATH, "//button[@for='resultListas-detail-0']")))
+
+        driver.execute_script("arguments[0].click();", lista_cedente)
+
+        lista_originador = WebDriverWait(driver, 10, ignored_exceptions=ignored_exceptions).until(
+            EC.presence_of_element_located((By.XPATH, "//button[@for='resultListas-detail-1']")))
+
+        driver.execute_script("arguments[0].click();", lista_originador)
+
+        lista_devedor = WebDriverWait(driver, 10, ignored_exceptions=ignored_exceptions).until(
+            EC.presence_of_element_located((By.XPATH, "//button[@for='resultListas-detail-2']")))
+
+        driver.execute_script("arguments[0].click();", lista_devedor)
+
+
+        # Agora sim, todo o HTML do CRI está na página e primeiro vamos "parsea-lo" para depois retirar as informações necessárias 
+        
+        # Selecionando apenas a parte do HTML que se refere às informações do CRI
+        element = WebDriverWait(driver, 10, ignored_exceptions=ignored_exceptions).until(
+            EC.presence_of_element_located((By.XPATH, "//main[@class='col-xs-12 col-sm-12 col-md-12']")))
+
+        # Pegando o HTML
+        html_content = element.get_attribute('outerHTML')
+
+        # Parseando o HTML
+        page_soup = soup(html_content, "html.parser")
+
+
+        # Agora vai começar a identificação e a raspagem. A maior parte do código é para pegar aqueles três botões que "escondem" algumas informações...
+        # ... São três botões: Um dos devedores, outro dos cedentes e outro dos originadores, cada um com uma lista que pode ter um ou vários elementos...
+        # ... sendo o código feito para abarcar todos os casos.
+
+        
+        
+        # Há duas tags como lista no HTML, mas é na primeira que estão as informações (não confundir com a lista dos botões) 
+        listas = page_soup.findAll("div", {"class": "col-xs-12 form-group"})
+
+        # Identificando a primeira lista
+        lista1 = listas[0]
+
+       
+        # 1) fazendo primeiro para CEDENTES
+       
+        # Encontrando a tag onde está a tabela dos cedentes
+        table_cedentes = lista1.find("table", {"id": "resultListas-detail-0-sub"})
+
+        # Encontrando os números de quandos cedentes há, se realmente há algum (há casos em que não estão idenficados e, portanto, são zero)
+        numero_listas_cedente = table_cedentes.findAll("td", {"data-type": "numOrder"})
+
+        # Se for zero, ou seja, não tiver nenhum cedente, o primeiro dado captado vai ser preenchido como "sem resultado" 
+        # OBS: Depois isso não vai ser legal porque vai misturar string com integers caso a base seja trabalhada no pandas ou em outros softwares estatísticos avançados.
+        # A partir de agora os dados começaram a ser captados e separados por | que depois vai organizar os dados em colunas. Ao final de cada captação de CRI individualmente...
+        # ... será dado um "\n" para ir para uma próxima linha e prosseguir na captação de dados do próximo CRI
+        if len(numero_listas_cedente) == 0:
+            f.write("sem resultado" + " |")
+
+        # Se não for zero, pede-se para retornar o número de cedentes que estão indexados
+        else:
+            f.write(len(numero_listas_cedente).__str__() + " |")
+
+        # Encontrar todas as descrições de cedentes, ou seja, todos os nomes dos cedentes
+        descricao_lista_cedente = table_cedentes.findAll("td", {"data-type": "description"})
+
+        # Se for zero, escrever "sem resultado"
+        if len(descricao_lista_cedente) == 0:
+            f.write("sem resultado")
+
+        # Se não for zero, fazer um loop que vai pegar cada nome, escrever e separar por um espaço, ao final do loop fechar com o separador.
+        else:
+            for n in range(0, len(descricao_lista_cedente)):
+                descricao_per_row_cedente = descricao_lista_cedente[n].text
+                print(descricao_per_row_cedente)
+                f.write(descricao_per_row_cedente + " ")
+
+        f.write(" |")
+        # fim do passo 1
+
+
+        # 2) Aqui repete tudo acima para os Cedentes.
+        table_originadores = lista1.find("table", {"id": "resultListas-detail-1-sub"})
+
+        numero_listas_originadores = table_originadores.findAll("td", {"data-type": "numOrder"})
+
+        if len(numero_listas_originadores) == 0:
+            f.write("sem resultado" + " |")
+
+
+        else:
+            f.write(len(numero_listas_originadores).__str__() + " |")
+
+
+        descricao_lista_originadores = table_originadores.findAll("td", {"data-type": "description"})
+
+        if len(descricao_lista_originadores) == 0:
+            f.write("sem resultado")
+
+        else:
+            for n in range(0, len(descricao_lista_originadores)):
+                descricao_per_row_originadores = descricao_lista_originadores[n].text
+                print(descricao_per_row_originadores)
+                f.write(descricao_per_row_originadores + " ")
+
+        f.write(" |")
+
+
+        # 3) Repetindo para os devedores
+        table_devedores = lista1.find("table", {"id": "resultListas-detail-2-sub"})
+
+        numero_listas_devedores = table_devedores.findAll("td", {"data-type": "numOrder"})
+
+        if len(numero_listas_devedores) == 0:
+            f.write("sem resultado" + " |")
+
+        else:
+            f.write(len(numero_listas_devedores).__str__() + " |")
+
+        descricao_lista_devedores = table_devedores.findAll("td", {"data-type": "description"})
+
+        if len(descricao_lista_devedores) == 0:
+            f.write("sem resultado")
+
+        else:
+            for n in range(0, len(descricao_lista_devedores)):
+                descricao_per_row_devedores = descricao_lista_devedores[n].text
+                print(descricao_per_row_devedores)
+                f.write(descricao_per_row_devedores + " ")
+
+
+        f.write(" |")
+        # fim da captação das informações dos três botões (quanta complicação)
+        
+        
+       # Agora é fazer o último loop que vai pegar todas as informações individuais de cada CRI que estão no HTML
+             
+       # Gera-se um "containers" que são blocos de informações que contém principalmente o "label" e o "value", ou seja, o título do dado e sua resposta para aquele CRI
+       # Cada container será, portanto, um dado que entra numa coluna específica. 
+       containers = page_soup.findAll("div", {"class": "col-xs-12 col-sm-12 col-md-4 form-group"})
+
+       
+      # Aqui vai entrar uma gambiarra que será necessária para o tratamento dos dados depois. Isso porque o número de "containers" não é fixo. Ele varia para cada CRI,
+      # ... Assim, alguns CRI tem mais informações que outros, mas quero ter todos eles na mesma base depois. Quem não tiver a informação do "label" fica então como vazio
+      # ... Foi verificado após algumas extrações que (graças a deus) apenas um conjunto finito de containers e que ficava sempre ao final da página era o que variava ...
+      # ... de informações entre um CRI e outro. Desse modo, haviam dois conjuntos de CRI, aqueles que tinham cerca de 64 colunas e aqueles que tinham 82. Para colocar
+      # ... todo mundo na mesma base então foi feito if/else. Caso houvessem mais que 66 containers o webcrawler seguiria seu caminho de pegar todos os valores. Caso não
+      # ... pegaria os valores dos que tinham menos e "adicionaria" colunas sem valor ao final.  
+      
+       
+        if len(containers) > 66:
+            for container in containers:
+                value_container = container.input["value"]
+                print(value_container)
+                f.write(value_container.replace(";", ":") + "| ")
+
+        else:
+            for container in containers:
+                value_container = container.input["value"]
+                print(value_container)
+                f.write(value_container.replace(";", ":") + "| ")
+            f.write("|||||||||||||||||||||")
+
+
+        # Após pegar tudo que tinha que pegar e jogar no CSV, pula-se para a próxima linha para pegar os dados do próximo CRI
+        f.write("\n")
+      
+
+
+        # Depois de pegar todas as informações do primeiro CRI da primeira página, inici-se a modificação dos indexadores. Soma-se +1 ao i para que quando voltar à pagina...
+        # ... principal possa ir para o seguinte. 
+        i += 1
+
+        # Depois de captar informações de 10 CRI (que é o limite da página) muda-se também o j para j+1 e volta-se o i para 1 para pegar o primeiro da próxima página
+        if i == 11:
+            i -= 10
+            j += 1
+
+
+       # Depois de mudar os indicadores, volta para a página anterior e seleciona o frame onde estão os dados. A partir daí o comando while volta a valer e vai até acabar
+        driver.back()
+        driver.switch_to.frame(driver.find_element_by_tag_name('iframe'))
+
+
+      # quando o comando while não conseguir ir adiante, fecha-se o arquivo csv e o drive.
+    except Exception as e:
+        print(e)
+        f.close()
+        driver.quit()
+        break
